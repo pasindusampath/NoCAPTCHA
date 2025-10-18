@@ -65,9 +65,10 @@ jobs:
           script: |
             set -e
             
-            # Check if directory exists, create if needed
-            if [ ! -d "/opt/nx-mono-repo-staging" ]; then
-              echo "Creating /opt/nx-mono-repo-staging directory..."
+            # Check if directory exists AND is a git repository
+            if [ ! -d "/opt/nx-mono-repo-staging/.git" ]; then
+              echo "Initializing /opt/nx-mono-repo-staging..."
+              sudo rm -rf /opt/nx-mono-repo-staging
               sudo mkdir -p /opt/nx-mono-repo-staging
               sudo chown -R $USER:$USER /opt/nx-mono-repo-staging
               cd /opt/nx-mono-repo-staging

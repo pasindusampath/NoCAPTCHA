@@ -97,7 +97,7 @@ class Server {
    */
   public async start(port: number): Promise<void> {
     try {
-      console.log('🚀 Starting server...');
+      console.log('🚀 Starting server....');
 
       // Stop existing server if running (for development restarts)
       if (this.server) {

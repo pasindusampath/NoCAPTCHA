@@ -51,7 +51,7 @@ jobs:
             nx-web-prod:latest
             nx-web-prod:${{ github.sha }}
           build-args: |
-            NEXT_PUBLIC_API_URL=https://api.pasindusampath.com
+            NEXT_PUBLIC_API_URL=https://prod-api.pasindusampath.com
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
@@ -96,14 +96,14 @@ jobs:
             DB_NAME=${{ secrets.PROD_DB_NAME }}
             DB_USER=${{ secrets.PROD_DB_USER }}
             DB_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
-            CORS_ORIGIN=https://web.pasindusampath.com,https://pasindusampath.com
+            CORS_ORIGIN=https://prod-web.pasindusampath.com
             EOF
             
             # Web env file
             cat > apps/web/.env.prod << 'EOF'
             NODE_ENV=production
             PORT=3023
-            NEXT_PUBLIC_API_URL=https://api.pasindusampath.com
+            NEXT_PUBLIC_API_URL=https://prod-api.pasindusampath.com
             EOF
             
             # Create network if it doesn't exist
@@ -142,13 +142,13 @@ jobs:
         run: |
           sleep 30
           echo "Checking PRODUCTION health endpoint..."
-          curl -f https://api.pasindusampath.com/health || curl -f http://${{ secrets.VPS_HOST }}:3013/health || exit 1
+          curl -f https://prod-api.pasindusampath.com/health || curl -f http://${{ secrets.VPS_HOST }}:3013/health || exit 1
         continue-on-error: true
       
       - name: Notify deployment status
         if: always()
         run: |
           echo "🚀 PRODUCTION Deployment completed with status: ${{ job.status }}"
-          echo "📍 API URL: https://api.pasindusampath.com"
-          echo "📍 Web URL: https://pasindusampath.com"
+          echo "📍 API URL: https://prod-api.pasindusampath.com"
+          echo "📍 Web URL: https://prod-web.pasindusampath.com"
 

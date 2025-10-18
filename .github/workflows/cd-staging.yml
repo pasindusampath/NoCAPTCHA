@@ -91,8 +91,8 @@ jobs:
             cat > apps/api/.env.staging << 'EOF'
             NODE_ENV=staging
             PORT=3012
-            DB_HOST=127.0.0.1
-            DB_PORT=${{ secrets.STAGING_DB_PORT }}
+            DB_HOST=172.17.0.1
+            DB_PORT=5432
             DB_NAME=${{ secrets.STAGING_DB_NAME }}
             DB_USER=${{ secrets.STAGING_DB_USER }}
             DB_PASSWORD=${{ secrets.STAGING_DB_PASSWORD }}

@@ -2,7 +2,7 @@ name: CD - Deploy to PRODUCTION
 
 on:
   push:
-    branches: [main, production]
+    branches: [production]
   workflow_dispatch:
 
 env:

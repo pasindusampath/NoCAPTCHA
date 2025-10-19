@@ -1,0 +1,1333 @@
+# NX Monorepo - Class-Based Architecture Rules
+
+## Project Overview
+
+This is an NX monorepo with a class-based architecture using:
+- **Backend**: Express.js API with Sequelize-TypeScript (decorator-based models)
+- **Frontend**: Next.js (React)
+- **Shared**: Common DTOs, interfaces, and utilities
+- **Database**: PostgreSQL with Sequelize ORM
+- **Pattern**: Singleton services/DAOs, Dependency injection for controllers
+
+## Architecture Layers
+
+```
+Client Request
+    ↓
+Route → [Middleware] → Controller → Service → DAO → Model → Database
+         (future)         (DI)      (Singleton) (Singleton) (Decorators)
+                           ↓            ↓
+                         DTOs      Business Logic
+```
+
+## Core Patterns
+
+### 1. Model Pattern (Sequelize-TypeScript with Decorators)
+
+**ALWAYS use decorator-based models with constants inside the class:**
+
+```typescript
+import { Table, Column, Model, DataType, CreatedAt, UpdatedAt, PrimaryKey, AutoIncrement } from 'sequelize-typescript';
+import { IItem } from '@nx-mono-repo-deployment-test/shared';
+
+@Table({
+  tableName: ItemModel.TABLE_NAME,
+  timestamps: true,
+})
+export default class ItemModel extends Model<IItem> implements IItem {
+  // Table name constant
+  public static readonly TABLE_NAME = 'items';
+  
+  // Field name constants
+  public static readonly ITEM_ID = 'id';
+  public static readonly ITEM_NAME = 'name';
+  public static readonly ITEM_DESCRIPTION = 'description';
+  public static readonly ITEM_CREATED_AT = 'createdAt';
+  public static readonly ITEM_UPDATED_AT = 'updatedAt';
+
+  @PrimaryKey
+  @AutoIncrement
+  @Column(DataType.INTEGER)
+  id!: number;
+
+  @Column({
+    type: DataType.STRING(255),
+    allowNull: false,
+    validate: {
+      notEmpty: true,
+    },
+  })
+  name!: string;
+
+  @Column(DataType.TEXT)
+  description?: string;
+
+  @CreatedAt
+  createdAt!: Date;
+
+  @UpdatedAt
+  updatedAt!: Date;
+}
+```
+
+**Key Rules:**
+- ✅ Use `@Table`, `@Column`, `@PrimaryKey`, etc. decorators
+- ✅ Keep constants inside class as `public static readonly`
+- ✅ Name constants: `{ENTITY}_{FIELD}` (e.g., `ITEM_NAME`, `USER_EMAIL`)
+- ✅ Table name constant: `TABLE_NAME`
+- ✅ Implement interface from shared library
+- ✅ Use clean decorators (no `field:` specification needed)
+- ❌ Never use `Model.init()` anymore
+- ❌ Never export constants outside of class
+- ❌ Never use magic strings
+
+### 2. DAO Pattern (Singleton)
+
+**Data Access Objects handle all database operations:**
+
+```typescript
+import ItemModel from '../models/Item.model';
+import { IItem, CreateItemDto, UpdateItemDto } from '@nx-mono-repo-deployment-test/shared';
+
+class ItemDao {
+  private static instance: ItemDao;
+
+  private constructor() {}
+
+  public static getInstance(): ItemDao {
+    if (!ItemDao.instance) {
+      ItemDao.instance = new ItemDao();
+    }
+    return ItemDao.instance;
+  }
+
+  // Use model constants in queries - NO magic strings!
+  public async findAll(): Promise<IItem[]> {
+    try {
+      const items = await ItemModel.findAll({
+        order: [[ItemModel.ITEM_CREATED_AT, 'DESC']],
+      });
+      return items.map(item => item.toJSON() as IItem);
+    } catch (error) {
+      console.error('Error in ItemDao.findAll:', error);
+      throw error;
+    }
+  }
+
+  public async create(dto: CreateItemDto): Promise<IItem> {
+    const item = await ItemModel.create({
+      [ItemModel.ITEM_NAME]: dto.name,
+      [ItemModel.ITEM_DESCRIPTION]: dto.description,
+    });
+    return item.toJSON() as IItem;
+  }
+}
+
+export default ItemDao;
+```
+
+**Key Rules:**
+- ✅ Singleton pattern with `getInstance()`
+- ✅ Use model constants (e.g., `ItemModel.ITEM_NAME`)
+- ✅ Return plain objects (use `.toJSON()`)
+- ✅ Handle errors with try-catch
+- ✅ Accept DTOs as parameters
+- ❌ Never use magic strings in queries
+- ❌ Never create multiple instances
+
+### 3. Service Pattern (Singleton)
+
+**Services contain business logic and orchestrate DAOs:**
+
+```typescript
+import { ItemDao } from '../dao';
+import { CreateItemDto, UpdateItemDto, IApiResponse, ItemResponseDto } from '@nx-mono-repo-deployment-test/shared';
+
+class ItemService {
+  private static instance: ItemService;
+
+  private constructor(private itemDao: ItemDao) {}
+
+  public static getInstance(): ItemService {
+    if (!ItemService.instance) {
+      ItemService.instance = new ItemService(ItemDao.getInstance());
+    }
+    return ItemService.instance;
+  }
+
+  public async getAllItems(): Promise<IApiResponse<ItemResponseDto[]>> {
+    try {
+      const items = await this.itemDao.findAll();
+      const itemDtos = items.map(item => new ItemResponseDto(item));
+
+      return {
+        success: true,
+        data: itemDtos,
+        count: itemDtos.length,
+      };
+    } catch (error) {
+      console.error('Error in ItemService.getAllItems:', error);
+      return {
+        success: false,
+        error: 'Failed to retrieve items',
+      };
+    }
+  }
+
+  public async createItem(dto: CreateItemDto): Promise<IApiResponse<ItemResponseDto>> {
+    // Validation
+    if (!dto.name || dto.name.trim() === '') {
+      return {
+        success: false,
+        error: 'Item name is required',
+      };
+    }
+
+    // Business logic
+    const trimmedDto = new CreateItemDto(dto.name.trim(), dto.description?.trim());
+    const item = await this.itemDao.create(trimmedDto);
+
+    return {
+      success: true,
+      data: new ItemResponseDto(item),
+      message: 'Item created successfully',
+    };
+  }
+}
+
+export default ItemService;
+```
+
+**Key Rules:**
+- ✅ Singleton pattern with `getInstance()`
+- ✅ Inject DAO via constructor
+- ✅ Handle business logic and validation
+- ✅ Return `IApiResponse<T>` with success/error
+- ✅ Transform data using DTOs
+- ✅ Never throw errors, return error responses
+- ❌ Never access database directly (use DAO)
+
+### 4. Controller Pattern (Dependency Injection)
+
+**Controllers handle HTTP requests/responses. ALWAYS use ARROW FUNCTIONS for automatic `this` binding:**
+
+```typescript
+import { Request, Response } from 'express';
+import { ItemService } from '../services';
+import { CreateItemDto, UpdateItemDto, IdParamDto } from '@nx-mono-repo-deployment-test/shared';
+
+class ItemController {
+  constructor(private itemService: ItemService) {}
+
+  /**
+   * GET /api/items
+   * Get all items
+   */
+  getItems = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const result = await this.itemService.getAllItems();
+
+      if (result.success) {
+        res.status(200).json(result);
+      } else {
+        res.status(500).json(result);
+      }
+    } catch (error) {
+      console.error('Error in ItemController.getItems:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  /**
+   * POST /api/items
+   * Create a new item
+   * Note: Body validation is handled by middleware
+   */
+  createItem = async (req: Request, res: Response): Promise<void> => {
+    try {
+      // Body is already validated and transformed to CreateItemDto by middleware
+      const createItemDto = req.body as CreateItemDto;
+      const result = await this.itemService.createItem(createItemDto);
+
+      if (result.success) {
+        res.status(201).json(result);
+      } else {
+        res.status(400).json(result);
+      }
+    } catch (error) {
+      console.error('Error in ItemController.createItem:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  /**
+   * GET /api/items/:id
+   * Get item by ID
+   * Note: ID validation is handled by middleware
+   */
+  getItemById = async (req: Request, res: Response): Promise<void> => {
+    try {
+      // ID is already validated and converted by middleware
+      const { id } = req.params as unknown as IdParamDto;
+      const result = await this.itemService.getItemById(id);
+
+      if (result.success) {
+        res.status(200).json(result);
+      } else {
+        res.status(404).json(result);
+      }
+    } catch (error) {
+      console.error('Error in ItemController.getItemById:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  /**
+   * PUT /api/items/:id
+   * Update an item
+   * Note: ID and body validation is handled by middleware
+   */
+  updateItem = async (req: Request, res: Response): Promise<void> => {
+    try {
+      // ID and body are already validated by middleware
+      const { id } = req.params as unknown as IdParamDto;
+      const updateItemDto = req.body as UpdateItemDto;
+      const result = await this.itemService.updateItem(id, updateItemDto);
+
+      if (result.success) {
+        res.status(200).json(result);
+      } else {
+        res.status(404).json(result);
+      }
+    } catch (error) {
+      console.error('Error in ItemController.updateItem:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+
+  /**
+   * DELETE /api/items/:id
+   * Delete an item
+   * Note: ID validation is handled by middleware
+   */
+  deleteItem = async (req: Request, res: Response): Promise<void> => {
+    try {
+      // ID is already validated and converted by middleware
+      const { id } = req.params as unknown as IdParamDto;
+      const result = await this.itemService.deleteItem(id);
+
+      if (result.success) {
+        res.status(200).json(result);
+      } else {
+        res.status(404).json(result);
+      }
+    } catch (error) {
+      console.error('Error in ItemController.deleteItem:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Internal server error',
+      });
+    }
+  }
+}
+
+export default ItemController;
+```
+
+**Key Rules:**
+- ✅ **ALWAYS use arrow functions** - no binding needed in routes
+- ✅ Dependency injection via constructor
+- ✅ Accept service as parameter
+- ✅ Use pre-validated DTOs from middleware
+- ✅ Handle HTTP status codes properly
+- ✅ Catch errors and return 500
+- ✅ Add JSDoc comments for each endpoint
+- ❌ Never contain business logic
+- ❌ Never access DAO directly
+- ❌ Never use regular methods (public async methodName())
+
+### 5. Server Initializer Pattern (Singleton)
+
+**Server class handles application lifecycle:**
+
+```typescript
+import 'reflect-metadata';
+import express, { Application } from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import Database from './database';
+import { routes } from './routes';
+
+class Server {
+  private static instance: Server;
+  private app: Application;
+  private database: Database;
+  private server: any;
+
+  private constructor() {
+    this.app = express();
+    this.database = Database.getInstance();
+  }
+
+  public static getInstance(): Server {
+    if (!Server.instance) {
+      Server.instance = new Server();
+    }
+    return Server.instance;
+  }
+
+  private setupMiddleware(): void {
+    this.app.use(helmet());
+    this.app.use(cors());
+    this.app.use(express.json());
+    this.app.use(express.urlencoded({ extended: true }));
+    this.app.use(morgan('combined'));
+  }
+
+  private setupRoutes(): void {
+    this.app.use('/', routes);
+  }
+
+  private setupErrorHandlers(): void {
+    // 404 handler
+    this.app.use((req, res) => {
+      res.status(404).json({ error: 'Not Found' });
+    });
+
+    // Error handler
+    this.app.use((err: Error, req: any, res: any, next: any) => {
+      console.error(err.stack);
+      res.status(500).json({
+        error: 'Something went wrong!',
+        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+      });
+    });
+  }
+
+  public async start(port: number): Promise<void> {
+    try {
+      // Initialize database
+      await this.database.connect();
+      const shouldAlter = process.env.NODE_ENV === 'development';
+      await this.database.sync(false, shouldAlter);
+
+      // Setup application
+      this.setupMiddleware();
+      this.setupRoutes();
+      this.setupErrorHandlers();
+
+      // Start server
+      this.server = this.app.listen(port, () => {
+        console.log(`🚀 API Server is running on port ${port}`);
+        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    } catch (error) {
+      console.error('Failed to start server:', error);
+      throw error;
+    }
+  }
+
+  public async stop(): Promise<void> {
+    try {
+      if (this.server) {
+        this.server.close();
+      }
+      await this.database.disconnect();
+      console.log('✓ Server stopped successfully');
+    } catch (error) {
+      console.error('Error stopping server:', error);
+      throw error;
+    }
+  }
+
+  public getApp(): Application {
+    return this.app;
+  }
+}
+
+export default Server;
+```
+
+**Key Rules:**
+- ✅ Singleton pattern
+- ✅ Encapsulate all server setup
+- ✅ Separate concerns (middleware, routes, errors)
+- ✅ Handle graceful shutdown
+- ✅ Initialize database before starting
+- ❌ Never put setup logic in main.ts
+
+### 6. Route Pattern (Class-Based - Recommended)
+
+**BaseRouter (Abstract Class):**
+```typescript
+export abstract class BaseRouter {
+  protected router: Router;
+
+  constructor() {
+    this.router = Router();
+    this.initializeRoutes(); // ✅ Called at end of constructor
+  }
+
+  protected abstract initializeRoutes(): void;
+  public getRouter(): Router { return this.router; }
+}
+```
+
+**Concrete Router Implementation:**
+```typescript
+export class ItemRouter extends BaseRouter {
+  private itemController: ItemController;
+
+  constructor() {
+    // Initialize dependencies
+    const itemService = ItemService.getInstance();
+    this.itemController = new ItemController(itemService);
+    
+    // Call parent constructor which calls initializeRoutes()
+    super();
+  }
+
+  protected initializeRoutes(): void {
+    // All routes defined here - no .bind() needed with arrow functions
+    this.router.get('/', 
+      this.itemController.getItems
+    );
+
+    this.router.get('/:id',
+      ValidationMiddleware.params(IdParamDto),
+      this.itemController.getItemById
+    );
+
+    this.router.post('/',
+      ValidationMiddleware.body(CreateItemDto),
+      this.itemController.createItem
+    );
+
+    this.router.put('/:id',
+      ...ValidationMiddleware.bodyAndParams(UpdateItemDto, IdParamDto),
+      this.itemController.updateItem
+    );
+
+    this.router.delete('/:id',
+      ValidationMiddleware.params(IdParamDto),
+      this.itemController.deleteItem
+    );
+  }
+
+  public getController(): ItemController {
+    return this.itemController;
+  }
+}
+```
+
+**RouterManager (Singleton Aggregator):**
+```typescript
+export class RouterManager {
+  private static instance: RouterManager;
+  private mainRouter: Router;
+  private itemRouter: ItemRouter;
+  private healthRouter: HealthRouter;
+
+  private constructor() {
+    this.mainRouter = Router();
+    this.initializeRouters();
+    this.configureRoutes();
+  }
+
+  public static getInstance(): RouterManager {
+    if (!RouterManager.instance) {
+      RouterManager.instance = new RouterManager();
+    }
+    return RouterManager.instance;
+  }
+
+  private initializeRouters(): void {
+    this.itemRouter = new ItemRouter();
+    this.healthRouter = new HealthRouter();
+  }
+
+  private configureRoutes(): void {
+    this.mainRouter.use('/health', this.healthRouter.getRouter());
+    this.mainRouter.use('/api/items', this.itemRouter.getRouter());
+  }
+
+  public getRouter(): Router { return this.mainRouter; }
+  public getItemRouter(): ItemRouter { return this.itemRouter; }
+  public getHealthRouter(): HealthRouter { return this.healthRouter; }
+}
+```
+
+**Server Integration:**
+```typescript
+private setupRoutes(): void {
+  const routerManager = RouterManager.getInstance();
+  this.app.use('/', routerManager.getRouter());
+}
+```
+
+**Key Rules:**
+- ✅ Extend BaseRouter for all route classes
+- ✅ Call `super()` at end of constructor
+- ✅ Implement `initializeRoutes()` method
+- ✅ Initialize dependencies in constructor
+- ✅ Use RouterManager singleton for aggregation
+- ✅ Apply validation middleware in `initializeRoutes()`
+- ✅ Provide controller getter for testing
+- ✅ Use arrow functions in controllers - no `.bind()` needed
+
+### 6.1. Legacy Route Pattern (Functional - For Backward Compatibility)
+
+**Functional Routes (still supported):**
+```typescript
+import { Router } from 'express';
+import { ItemController } from '../controllers';
+import { ItemService } from '../services';
+import { ValidationMiddleware } from '../middleware';
+import { CreateItemDto } from '@nx-mono-repo-deployment-test/shared';
+
+const router = Router();
+const itemService = ItemService.getInstance();
+const itemController = new ItemController(itemService);
+
+// No .bind() needed with arrow functions
+router.get('/', itemController.getItems);
+router.post('/', 
+  ValidationMiddleware.body(CreateItemDto), 
+  itemController.createItem
+);
+
+export default router;
+```
+
+### 7. Middleware Pattern
+
+**Validation Middleware (class-validator + class-transformer):**
+
+**DTOs with Validation Decorators:**
+```typescript
+// libs/shared/src/dtos/CreateItemDto.ts
+import { IsString, IsNotEmpty, IsOptional, Length } from 'class-validator';
+
+export class CreateItemDto {
+  @IsString({ message: 'Name must be a string' })
+  @IsNotEmpty({ message: 'Name is required' })
+  @Length(1, 255, { message: 'Name must be between 1 and 255 characters' })
+  name!: string;
+
+  @IsString({ message: 'Description must be a string' })
+  @IsOptional()
+  @Length(0, 1000, { message: 'Description must not exceed 1000 characters' })
+  description?: string;
+}
+
+// libs/shared/src/dtos/IdParamDto.ts
+import { IsInt, IsPositive } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class IdParamDto {
+  @Type(() => Number)
+  @IsInt({ message: 'ID must be an integer' })
+  @IsPositive({ message: 'ID must be a positive number' })
+  id!: number;
+}
+```
+
+**Validation Middleware Functions:**
+```typescript
+// apps/api/src/middleware/validation.ts
+import { plainToClass } from 'class-transformer';
+import { validate } from 'class-validator';
+
+export function validateBody<T extends object>(dtoClass: new () => T) {
+  return async (req, res, next) => {
+    const dtoInstance = plainToClass(dtoClass, req.body);
+    const errors = await validate(dtoInstance);
+    
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.map(e => ({
+          field: e.property,
+          constraints: e.constraints,
+        })),
+      });
+    }
+    
+    req.body = dtoInstance;
+    next();
+  };
+}
+
+export function validateParams<T extends object>(dtoClass: new () => T) {
+  return async (req, res, next) => {
+    const dtoInstance = plainToClass(dtoClass, req.params);
+    const errors = await validate(dtoInstance);
+    
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request parameters',
+        details: errors.map(e => ({
+          field: e.property,
+          constraints: e.constraints,
+        })),
+      });
+    }
+    
+    req.params = dtoInstance as any;
+    next();
+  };
+}
+```
+
+**Usage in Routes:**
+```typescript
+import { Router } from 'express';
+import { ItemController } from '../controllers';
+import { ItemService } from '../services';
+import { validateBody, validateParams } from '../middleware';
+import { CreateItemDto, UpdateItemDto, IdParamDto } from '@nx-mono-repo-deployment-test/shared';
+
+const router = Router();
+const itemService = ItemService.getInstance();
+const itemController = new ItemController(itemService);
+
+// Apply validation middleware before controller - no .bind() needed
+router.post('/', 
+  validateBody(CreateItemDto), 
+  itemController.createItem
+);
+
+router.put('/:id',
+  validateParams(IdParamDto),
+  validateBody(UpdateItemDto),
+  itemController.updateItem
+);
+
+router.get('/:id',
+  validateParams(IdParamDto),
+  itemController.getItemById
+);
+```
+
+**Simplified Controllers (validation handled by middleware):**
+```typescript
+class ItemController {
+  constructor(private itemService: ItemService) {}
+
+  createItem = async (req: Request, res: Response): Promise<void> => {
+    // Body is already validated and transformed to CreateItemDto
+    const createItemDto = req.body as CreateItemDto;
+    const result = await this.itemService.createItem(createItemDto);
+    
+    if (result.success) {
+      res.status(201).json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  }
+
+  getItemById = async (req: Request, res: Response): Promise<void> => {
+    // ID is already validated and converted by middleware
+    const { id } = req.params as any;
+    const result = await this.itemService.getItemById(id);
+    
+    res.status(result.success ? 200 : 404).json(result);
+  }
+}
+```
+
+**Response Normalization Middleware:**
+```typescript
+// apps/api/src/middleware/responseHandler.ts
+export function normalizeResponse(req, res, next) {
+  res.sendSuccess = function(data, message, statusCode = 200) {
+    this.status(statusCode).json({
+      success: true,
+      data,
+      message,
+      count: Array.isArray(data) ? data.length : undefined,
+    });
+  };
+
+  res.sendError = function(error, statusCode = 500, details) {
+    this.status(statusCode).json({
+      success: false,
+      error,
+      details,
+    });
+  };
+
+  next();
+}
+```
+
+**Error Handler Middleware:**
+```typescript
+// apps/api/src/middleware/errorHandler.ts
+export function errorHandler(err, req, res, next) {
+  console.error('Error:', err);
+
+  // Handle different error types
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({
+      success: false,
+      error: err.message,
+      details: err.details,
+    });
+  }
+
+  // Handle Sequelize errors
+  if (err.name.startsWith('Sequelize')) {
+    return res.status(400).json({
+      success: false,
+      error: 'Database error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
+  }
+
+  // Generic error
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+  });
+}
+```
+
+**Middleware in Server Setup:**
+```typescript
+class Server {
+  private setupMiddleware(): void {
+    this.app.use(helmet());
+    this.app.use(cors());
+    this.app.use(express.json());
+    this.app.use(normalizeResponse); // Add response helpers
+  }
+
+  private setupErrorHandlers(): void {
+    // 404 handler
+    this.app.use((req, res) => {
+      res.status(404).json({
+        success: false,
+        error: 'Route not found',
+      });
+    });
+
+    // Global error handler (must be last)
+    this.app.use(errorHandler);
+  }
+}
+```
+
+**Key Rules:**
+- ✅ Use `class-validator` decorators in DTOs
+- ✅ Apply validation middleware in routes before controllers
+- ✅ Use `validateBody()` for request body validation
+- ✅ Use `validateParams()` for URL parameter validation
+- ✅ Create `IdParamDto` for validating numeric IDs
+- ✅ Controllers receive pre-validated DTOs from middleware
+- ✅ Register `normalizeResponse` early in middleware chain
+- ✅ Register `errorHandler` last in error handlers
+- ✅ Use `@ValidateIf()` for conditional validation
+- ✅ Use arrow functions in controllers - no `.bind()` needed
+- ❌ Don't validate manually in controllers
+- ❌ Don't instantiate DTOs manually if using validation middleware
+
+**Conditional Validation with `@ValidateIf`:**
+
+Use `@ValidateIf` to make fields optional/required based on other field values:
+
+```typescript
+import { IsInt, IsString, IsNotEmpty, ValidateIf, Length } from 'class-validator';
+
+export class CreateItemDto {
+  @IsInt()
+  statusCode!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  // Description optional when statusCode === 10, required otherwise
+  @ValidateIf(o => o.statusCode !== 10)
+  @IsString()
+  @IsNotEmpty({ message: 'Description required when status code is not 10' })
+  @Length(1, 1000)
+  description?: string;
+
+  // Special field only required when statusCode === 10
+  @ValidateIf(o => o.statusCode === 10)
+  @IsString()
+  @IsNotEmpty({ message: 'Special notes required for status code 10' })
+  specialNotes?: string;
+}
+```
+
+**Multiple Conditions:**
+```typescript
+export class UpdateOrderDto {
+  @IsBoolean()
+  isFragile!: boolean;
+
+  @IsInt()
+  statusCode!: number;
+
+  // Required if BOTH fragile AND statusCode is 10
+  @ValidateIf(o => o.isFragile && o.statusCode === 10)
+  @IsString()
+  @IsNotEmpty()
+  specialHandling?: string;
+
+  // Required if fragile OR statusCode > 20
+  @ValidateIf(o => o.isFragile || o.statusCode > 20)
+  @IsString()
+  @IsNotEmpty()
+  insuranceNumber?: string;
+
+  // Skip validation entirely when statusCode is 10
+  @ValidateIf(o => o.statusCode !== 10)
+  @IsString()
+  @Length(5, 100)
+  notes?: string;
+}
+```
+
+**User Type Based Validation:**
+```typescript
+export class RegisterUserDto {
+  @IsString()
+  @IsNotEmpty()
+  userType!: 'individual' | 'business';
+
+  @IsEmail()
+  email!: string;
+
+  // Required only for individual users
+  @ValidateIf(o => o.userType === 'individual')
+  @IsString()
+  @IsNotEmpty({ message: 'Name required for individual accounts' })
+  fullName?: string;
+
+  // Required only for business users
+  @ValidateIf(o => o.userType === 'business')
+  @IsString()
+  @IsNotEmpty({ message: 'Company name required for business accounts' })
+  companyName?: string;
+
+  @ValidateIf(o => o.userType === 'business')
+  @IsString()
+  @IsNotEmpty({ message: 'Tax ID required for business accounts' })
+  taxId?: string;
+}
+```
+
+**Validation Rules for `@ValidateIf`:**
+- ✅ Always declare conditional fields as optional (`?`)
+- ✅ Place `@ValidateIf` decorator first (before other validators)
+- ✅ Provide clear error messages explaining the condition
+- ✅ Use arrow functions for conditions: `o => o.field === value`
+- ✅ Document complex conditions with comments
+- ❌ Don't forget the `?` on conditional fields
+- ❌ Don't place `@ValidateIf` after other decorators
+
+**Examples:**
+```typescript
+// ✅ Correct
+@ValidateIf(o => o.statusCode !== 10)
+@IsString()
+@IsNotEmpty()
+description?: string;
+
+// ❌ Wrong - missing ?
+@ValidateIf(o => o.statusCode !== 10)
+@IsString()
+description!: string;
+
+// ❌ Wrong - decorator order
+@IsString()
+@ValidateIf(o => o.statusCode !== 10)
+description?: string;
+```
+
+## Barrel Exports Pattern
+
+**Every directory MUST have an `index.ts` for barrel exports:**
+
+```typescript
+// dao/index.ts
+export { default as ItemDao } from './ItemDao';
+export { default as UserDao } from './UserDao';
+
+// services/index.ts
+export { default as ItemService } from './ItemService';
+export { default as UserService } from './UserService';
+
+// controllers/index.ts
+export { default as ItemController } from './ItemController';
+export { default as HealthController } from './HealthController';
+
+// models/index.ts
+export { default as ItemModel } from './Item.model';
+export { default as UserModel } from './User.model';
+export { sequelize } from '../config';
+```
+
+**Usage:**
+```typescript
+// ✅ DO: Import from directory
+import { ItemService, UserService } from '../services';
+import { ItemDao } from '../dao';
+
+// ❌ DON'T: Import from individual files
+import ItemService from '../services/ItemService';
+import ItemDao from '../dao/ItemDao';
+```
+
+## Shared Library
+
+**Structure:**
+```
+libs/shared/src/
+├── interfaces/
+│   ├── IItem.ts
+│   ├── IApiResponse.ts
+│   ├── IHealthResponse.ts
+│   └── index.ts (barrel)
+├── dtos/
+│   ├── CreateItemDto.ts
+│   ├── UpdateItemDto.ts
+│   ├── ItemResponseDto.ts
+│   └── index.ts (barrel)
+├── enums/
+│   └── index.ts (barrel)
+└── index.ts (main barrel)
+```
+
+**Import from shared:**
+```typescript
+import { 
+  IItem, 
+  IApiResponse, 
+  CreateItemDto, 
+  UpdateItemDto,
+  ItemResponseDto 
+} from '@nx-mono-repo-deployment-test/shared';
+```
+
+## Naming Conventions
+
+### File Names
+- Models: `{Entity}.model.ts` (e.g., `Item.model.ts`, `User.model.ts`)
+- DAOs: `{Entity}Dao.ts` (e.g., `ItemDao.ts`, `UserDao.ts`)
+- Services: `{Entity}Service.ts` (e.g., `ItemService.ts`)
+- Controllers: `{Entity}Controller.ts` (e.g., `ItemController.ts`)
+- Routes: `{entity}.routes.ts` (e.g., `items.routes.ts`)
+- DTOs: `{Action}{Entity}Dto.ts` (e.g., `CreateItemDto.ts`)
+- Interfaces: `I{Entity}.ts` (e.g., `IItem.ts`, `IUser.ts`)
+
+### Class Names
+- Models: `{Entity}Model` (e.g., `ItemModel`, `UserModel`)
+- DAOs: `{Entity}Dao` (e.g., `ItemDao`, `UserDao`)
+- Services: `{Entity}Service` (e.g., `ItemService`, `UserService`)
+- Controllers: `{Entity}Controller` (e.g., `ItemController`)
+- DTOs: `{Action}{Entity}Dto` (e.g., `CreateItemDto`, `UpdateItemDto`)
+
+### Constants in Models
+- Table name: `TABLE_NAME`
+- Field names: `{ENTITY}_{FIELD}` in SCREAMING_SNAKE_CASE
+  - Examples: `ITEM_ID`, `ITEM_NAME`, `USER_EMAIL`, `USER_PASSWORD`
+
+## Import Rules
+
+### Order of Imports
+```typescript
+// 1. External libraries
+import express from 'express';
+import { Model, DataType } from 'sequelize-typescript';
+
+// 2. Internal modules (using barrels)
+import { ItemService } from '../services';
+import { ItemDao } from '../dao';
+import Database from '../database';
+
+// 3. Shared library
+import { IItem, CreateItemDto } from '@nx-mono-repo-deployment-test/shared';
+
+// 4. Types
+import type { Request, Response } from 'express';
+```
+
+### Special Import Rules
+- ✅ **ALWAYS** import `reflect-metadata` FIRST in main entry point
+- ✅ **ALWAYS** use barrel exports
+- ✅ Import from `@nx-mono-repo-deployment-test/shared` for shared types
+- ❌ **NEVER** import from individual files when barrel exists
+
+## TypeScript Configuration
+
+**Required in tsconfig.json:**
+```json
+{
+  "compilerOptions": {
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strict": true,
+    "esModuleInterop": true
+  }
+}
+```
+
+## File Organization
+
+```
+apps/api/src/
+├── config/
+│   ├── database.ts          # Sequelize config
+│   └── index.ts             # Barrel export
+├── models/
+│   ├── Item.model.ts        # Decorator-based models
+│   ├── User.model.ts
+│   └── index.ts             # Barrel export
+├── dao/
+│   ├── ItemDao.ts           # Singleton DAOs
+│   ├── UserDao.ts
+│   └── index.ts             # Barrel export
+├── services/
+│   ├── ItemService.ts       # Singleton services
+│   ├── UserService.ts
+│   └── index.ts             # Barrel export
+├── controllers/
+│   ├── ItemController.ts    # DI controllers
+│   ├── UserController.ts
+│   ├── HealthController.ts
+│   └── index.ts             # Barrel export
+├── routes/
+│   ├── items.routes.ts      # Resource routes
+│   ├── users.routes.ts
+│   ├── health.routes.ts
+│   ├── routes.ts            # Central aggregator
+│   └── index.ts             # Barrel export
+├── middleware/
+│   ├── validation.ts        # Request validation (class-validator)
+│   ├── responseHandler.ts   # Response normalization
+│   ├── errorHandler.ts      # Global error handler
+│   └── index.ts             # Barrel export
+├── database.ts              # DB initialization
+├── server.ts                # Server class
+└── main.ts                  # Entry point (simple!)
+```
+
+## DO's and DON'Ts
+
+### ✅ DO
+
+1. **Use decorators** for models (`@Table`, `@Column`, etc.)
+2. **Use decorators** for DTO validation (`@IsString`, `@IsNotEmpty`, etc.)
+3. **Use `@ValidateIf()`** for conditional validation based on other fields
+4. **Use singleton pattern** for Services and DAOs
+5. **Use dependency injection** for Controllers
+6. **Use arrow functions** in controllers for automatic `this` binding
+7. **Keep constants inside model class** as `public static readonly`
+8. **Use barrel exports** everywhere
+9. **Import shared types** from `@nx-mono-repo-deployment-test/shared`
+10. **Use DTOs** for data transfer between layers
+11. **Use model constants** in DAO queries (e.g., `ItemModel.ITEM_NAME`)
+12. **Return `IApiResponse`** from service methods
+13. **Handle errors gracefully** with try-catch
+14. **Validate in middleware** using `validateBody()` and `validateParams()`
+15. **Create Server class** for application lifecycle
+16. **Keep main.ts simple** - just start the server
+17. **Use validation middleware** before controller handlers in routes
+18. **Declare conditional fields as optional** with `?` when using `@ValidateIf`
+19. **Use class-based routers** - extend BaseRouter and implement initializeRoutes()
+20. **Call super() at end of router constructor** - ensures initializeRoutes() is called
+21. **Use RouterManager singleton** for route aggregation and management
+
+### ❌ DON'T
+
+1. **Never use `Model.init()`** - use decorators
+2. **Never use magic strings** - use constants
+3. **Never export constants outside of class** - keep them inside
+4. **Never create multiple instances** - use singleton
+5. **Never import from individual files** - use barrels
+6. **Never duplicate types** between frontend/backend - use shared
+7. **Never put business logic** in controllers
+8. **Never access database** directly in services - use DAOs
+9. **Never throw errors** from services - return error responses
+10. **Never put setup logic** in main.ts - use Server class
+11. **Never use `field:` in decorators** - let it auto-infer
+12. **Never forget** `reflect-metadata` import in main.ts
+13. **Never validate manually in controllers** - use middleware
+14. **Never instantiate DTOs manually** if validation middleware is used
+15. **Never forget `?` on conditional fields** - use `field?: type` with `@ValidateIf`
+16. **Never place `@ValidateIf` after other decorators** - it must come first
+17. **Never forget to call super()** in router constructors
+18. **Never put route logic outside initializeRoutes()** method
+19. **Never use regular methods** in controllers - use arrow functions
+20. **Never use `.bind()`** in routes - arrow functions handle context automatically
+
+## Quick Reference
+
+### Adding a New Entity (e.g., User)
+
+1. **Shared Library** (`libs/shared/src/`):
+   - Create `interfaces/IUser.ts`
+   - Create `dtos/CreateUserDto.ts`, `UpdateUserDto.ts`, `UserResponseDto.ts`
+   - Update barrel exports
+
+2. **Model** (`apps/api/src/models/User.model.ts`):
+   ```typescript
+   @Table({ tableName: UserModel.TABLE_NAME })
+   export default class UserModel extends Model<IUser> implements IUser {
+     public static readonly TABLE_NAME = 'users';
+     public static readonly USER_ID = 'id';
+     public static readonly USER_EMAIL = 'email';
+     // ... fields with decorators
+   }
+   ```
+
+3. **DAO** (`apps/api/src/dao/UserDao.ts`):
+   ```typescript
+   class UserDao {
+     private static instance: UserDao;
+     public static getInstance(): UserDao { /* singleton */ }
+     // CRUD methods using UserModel constants
+   }
+   ```
+
+4. **Service** (`apps/api/src/services/UserService.ts`):
+   ```typescript
+   class UserService {
+     private static instance: UserService;
+     private constructor(private userDao: UserDao) {}
+     public static getInstance(): UserService { /* singleton */ }
+     // Business logic methods returning IApiResponse
+   }
+   ```
+
+5. **Controller** (`apps/api/src/controllers/UserController.ts`):
+   ```typescript
+   class UserController {
+     constructor(private userService: UserService) {}
+     
+     // Use arrow functions for automatic this binding
+     getUsers = async (req: Request, res: Response): Promise<void> => {
+       // HTTP handler logic
+     }
+     
+     createUser = async (req: Request, res: Response): Promise<void> => {
+       // HTTP handler logic
+     }
+   }
+   ```
+
+6. **Router Class** (`apps/api/src/routes/UserRouter.ts`):
+   ```typescript
+   export class UserRouter extends BaseRouter {
+     private userController: UserController;
+
+     constructor() {
+       const userService = UserService.getInstance();
+       this.userController = new UserController(userService);
+       super(); // Calls initializeRoutes()
+     }
+
+     protected initializeRoutes(): void {
+       // No .bind() needed with arrow functions
+       this.router.get('/', this.userController.getUsers);
+       this.router.post('/', 
+         ValidationMiddleware.body(CreateUserDto),
+         this.userController.createUser
+       );
+       // ... more routes
+     }
+   }
+   ```
+
+7. **Update RouterManager** (`apps/api/src/routes/RouterManager.ts`):
+   ```typescript
+   private initializeRouters(): void {
+     this.itemRouter = new ItemRouter();
+     this.healthRouter = new HealthRouter();
+     this.userRouter = new UserRouter(); // Add new router
+   }
+
+   private configureRoutes(): void {
+     this.mainRouter.use('/health', this.healthRouter.getRouter());
+     this.mainRouter.use('/api/items', this.itemRouter.getRouter());
+     this.mainRouter.use('/api/users', this.userRouter.getRouter()); // Configure route
+   }
+   ```
+
+8. **Update Barrel Exports** in each `index.ts`
+
+## Main Entry Point Pattern
+
+**main.ts should be SIMPLE:**
+
+```typescript
+import 'reflect-metadata'; // MUST BE FIRST!
+import dotenv from 'dotenv';
+import Server from './server';
+
+dotenv.config();
+
+const port = parseInt(process.env.PORT || '3000', 10);
+const server = Server.getInstance();
+
+// Graceful shutdown
+process.on('SIGTERM', () => server.stop());
+process.on('SIGINT', () => server.stop());
+
+// Start server
+server.start(port).catch((error) => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
+```
+
+## Common Mistakes to Avoid
+
+1. ❌ Forgetting `reflect-metadata` import
+2. ❌ Not enabling decorators in tsconfig
+3. ❌ Using magic strings instead of constants
+4. ❌ Creating multiple DAO/Service instances
+5. ❌ Putting business logic in controllers
+6. ❌ Importing from individual files instead of barrels
+7. ❌ Using regular methods instead of arrow functions in controllers
+8. ❌ Using `.bind()` in routes when arrow functions handle context
+9. ❌ Exporting constants outside model class
+10. ❌ Using `Model.init()` instead of decorators
+11. ❌ Putting server setup in main.ts
+12. ❌ Forgetting `?` on conditional validation fields
+13. ❌ Wrong decorator order with `@ValidateIf`
+14. ❌ Not providing clear error messages for conditional validation
+15. ❌ Using `!` instead of `?` on `@ValidateIf` fields
+
+## Summary
+
+This architecture provides:
+- ✅ Clean, maintainable code
+- ✅ Clear separation of concerns
+- ✅ Type safety throughout
+- ✅ Easy to test and extend
+- ✅ Consistent patterns
+- ✅ Self-documenting structure
+- ✅ Production-ready setup
+
+**Follow these rules religiously for consistency!**
+

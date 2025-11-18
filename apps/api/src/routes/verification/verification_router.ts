@@ -1,7 +1,7 @@
 import { BaseRouter } from '../common/base_router';
 import { VerificationController } from '../../controllers';
 import { VerificationService } from '../../services';
-import { ValidationMiddleware } from '../../middleware';
+import { ValidationMiddleware, verificationBlocker, recordVerificationAttempt } from '../../middleware';
 import { VerifyRequestDto } from '@nx-mono-repo-deployment-test/shared/src/dtos/verification';
 
 // Route path constants
@@ -42,9 +42,12 @@ export class VerificationRouter extends BaseRouter {
     const controller = this.getVerificationController();
 
     // POST /api/verify - Verify Turnstile token and log metrics
+    // Apply blocking middleware before validation
     this.router.post(
       '/',
+      verificationBlocker, // Check if IP is blocked
       ValidationMiddleware.body(VerifyRequestDto),
+      recordVerificationAttempt, // Record attempt after processing
       controller.verify
     );
   }

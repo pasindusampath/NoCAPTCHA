@@ -3,6 +3,7 @@ import { ItemRouter } from './item/item_router';
 import { HealthRouter } from './health/health_router';
 import { VerificationRouter } from './verification/verification_router';
 import { MetricsRouter } from './metrics/metrics_router';
+import { AdminRouter } from './admin/admin_router';
 
 // Interface for router-like objects
 interface RouterLike {
@@ -35,6 +36,7 @@ export class RouterManager {
   private healthRouter: HealthRouter;
   private verificationRouter: VerificationRouter;
   private metricsRouter: MetricsRouter;
+  private adminRouter: AdminRouter;
 
   private constructor() {
     this.mainRouter = Router();
@@ -42,6 +44,7 @@ export class RouterManager {
     this.healthRouter = new HealthRouter();
     this.verificationRouter = new VerificationRouter();
     this.metricsRouter = new MetricsRouter();
+    this.adminRouter = new AdminRouter();
     this.configureRoutes();
   }
 
@@ -74,6 +77,7 @@ export class RouterManager {
     this.mainRouter.use(`${API_PREFIX}${this.itemRouter.getBasePath()}`, this.itemRouter.getRouter());
     this.mainRouter.use(`${API_PREFIX}${this.verificationRouter.getBasePath()}`, this.verificationRouter.getRouter());
     this.mainRouter.use(`${API_PREFIX}${this.metricsRouter.getBasePath()}`, this.metricsRouter.getRouter());
+    this.mainRouter.use(`${API_PREFIX}${this.adminRouter.getBasePath()}`, this.adminRouter.getRouter());
   }
 
   /**
@@ -157,6 +161,11 @@ export class RouterManager {
     routes.push(...this.metricsRouter.getRouteInfo().map(route => ({
       ...route,
       path: `${API_PREFIX}${route.path}` // Add API prefix to metrics routes
+    })));
+    
+    routes.push(...this.adminRouter.getRouteInfo().map(route => ({
+      ...route,
+      path: `${API_PREFIX}${route.path}` // Add API prefix to admin routes
     })));
     
     return routes;

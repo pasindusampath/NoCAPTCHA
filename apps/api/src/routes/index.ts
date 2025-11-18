@@ -16,6 +16,7 @@ export * from './common';
 export * from './item';
 export * from './health';
 export * from './verification';
+export * from './admin';
 
 // Export RouterManager
 export { RouterManager } from './router_manager';
@@ -25,4 +26,5 @@ export { BaseRouter } from './common/base_router';
 export { ItemRouter } from './item/item_router';
 export { HealthRouter } from './health/health_router';
 export { VerificationRouter } from './verification/verification_router';
+export { AdminRouter } from './admin/admin_router';
 

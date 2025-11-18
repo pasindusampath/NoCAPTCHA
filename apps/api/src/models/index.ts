@@ -6,6 +6,7 @@
  */
 import { sequelize } from '../config';
 import ItemModel from './item.model';
+import VerificationModel from './verification.model';
 
 /**
  * Initialize model associations here
@@ -18,6 +19,7 @@ export const initializeAssociations = (): void => {
 
 // Export individual models (constants are accessible via ItemModel.TABLE_NAME, etc.)
 export { default as ItemModel } from './item.model';
+export { default as VerificationModel } from './verification.model';
 
 // Export sequelize instance
 export { sequelize };
@@ -25,6 +27,7 @@ export { sequelize };
 // Export all models object
 export const models = {
   Item: ItemModel,
+  Verification: VerificationModel,
   // Add more models here
 };
 

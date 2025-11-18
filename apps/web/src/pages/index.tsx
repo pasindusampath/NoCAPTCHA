@@ -1,89 +1,73 @@
-import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import ItemList from '../components/ItemList';
-import AddItemForm from '../components/AddItemForm';
-import { fetchItems, createItem } from '../services/itemService';
-import { IItem } from '@nx-mono-repo-deployment-test/shared/src';
+import Link from 'next/link';
 import styles from '../styles/Home.module.css';
 
 export default function Home() {
-  const [items, setItems] = useState<IItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadItems = async (): Promise<void> => {
-    try {
-      setLoading(true);
-      const data = await fetchItems();
-      setItems(data);
-      setError(null);
-    } catch (err) {
-      setError('Failed to fetch items');
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadItems();
-  }, []);
-
-  const handleAddItem = async (name: string, description: string): Promise<void> => {
-    try {
-      const response = await createItem(name, description);
-      if (response.success) {
-        await loadItems();
-      }
-    } catch (err) {
-      console.error('Failed to add item:', err);
-      setError('Failed to add item');
-    }
-  };
-
   return (
     <div className={styles.container}>
       <Head>
-        <title>NX Monorepo Demo</title>
-        <meta name="description" content="NX Monorepo with CI/CD" />
+        <title>MonkeyVerify - Cloudflare Turnstile Demo</title>
+        <meta name="description" content="Seamless human verification with Cloudflare Turnstile" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
       <main className={styles.main}>
         <h1 className={styles.title}>
-          Welcome to <span className={styles.highlight}>NX Monorepo</span>
+          Welcome to <span className={styles.highlight}>MonkeyVerify</span>
         </h1>
 
         <p className={styles.description}>
-          A modern monorepo setup with CI/CD for VPS deployment
+          Experience seamless human verification with Cloudflare Turnstile.
+          No puzzles, no CAPTCHAs - just smooth, invisible protection.
         </p>
 
         <div className={styles.grid}>
           <div className={styles.card}>
-            <h2>Add New Item</h2>
-            <AddItemForm onAdd={handleAddItem} />
+            <h2>Try It Now</h2>
+            <p style={{ marginBottom: '1.5rem', color: '#666' }}>
+              Click the button below to see Cloudflare Turnstile in action.
+              The verification happens automatically in the background.
+            </p>
+            <Link href="/verify" className={styles.ctaButton}>
+              Go to Verification Demo →
+            </Link>
           </div>
 
           <div className={styles.card}>
-            <h2>Items</h2>
-            {loading && <p>Loading...</p>}
-            {error && <p className={styles.error}>{error}</p>}
-            {!loading && !error && <ItemList items={items} />}
+            <h2>How It Works</h2>
+            <ul className={styles.featureList}>
+              <li>
+                <strong>Frictionless UX</strong>
+                <p>Users verify without puzzles or CAPTCHAs</p>
+              </li>
+              <li>
+                <strong>Automatic Verification</strong>
+                <p>Turnstile silently generates a token in the background</p>
+              </li>
+              <li>
+                <strong>Secure Backend</strong>
+                <p>Server-side validation with Cloudflare API</p>
+              </li>
+              <li>
+                <strong>Metrics Tracking</strong>
+                <p>All verification attempts are logged for analytics</p>
+              </li>
+            </ul>
           </div>
         </div>
 
         <div className={styles.features}>
           <div className={styles.feature}>
-            <h3>🚀 NX Monorepo</h3>
-            <p>Powerful build system and tooling</p>
+            <h3>🛡️ Cloudflare Turnstile</h3>
+            <p>Advanced bot protection</p>
           </div>
           <div className={styles.feature}>
-            <h3>⚙️ CI/CD Ready</h3>
-            <p>Automated deployments with GitHub Actions</p>
+            <h3>📊 Metrics Tracking</h3>
+            <p>Comprehensive analytics</p>
           </div>
           <div className={styles.feature}>
-            <h3>🐳 Docker</h3>
-            <p>Containerized for easy deployment</p>
+            <h3>⚡ Fast & Seamless</h3>
+            <p>Zero user friction</p>
           </div>
         </div>
       </main>

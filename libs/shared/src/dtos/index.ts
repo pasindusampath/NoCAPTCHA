@@ -21,9 +21,11 @@
 export * from './common';
 export * from './params';
 export * from './item';
+export * from './verification';
 
 // Re-export commonly used types for convenience
 export { BaseDto, ValidationFailedError } from './common/base_dto';
 export { IdParamDto } from './params';
 export { CreateItemDto, UpdateItemDto, ItemResponseDto } from './item';
+export { VerifyRequestDto, VerifyResponseDto, VerificationMetricsDto, MetricsResponseDto } from './verification';
 

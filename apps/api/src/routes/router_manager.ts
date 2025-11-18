@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { ItemRouter } from './item/item_router';
 import { HealthRouter } from './health/health_router';
+import { VerificationRouter } from './verification/verification_router';
+import { MetricsRouter } from './metrics/metrics_router';
 
 // Interface for router-like objects
 interface RouterLike {
@@ -31,11 +33,15 @@ export class RouterManager {
   private mainRouter: Router;
   private itemRouter: ItemRouter;
   private healthRouter: HealthRouter;
+  private verificationRouter: VerificationRouter;
+  private metricsRouter: MetricsRouter;
 
   private constructor() {
     this.mainRouter = Router();
     this.itemRouter = new ItemRouter();
     this.healthRouter = new HealthRouter();
+    this.verificationRouter = new VerificationRouter();
+    this.metricsRouter = new MetricsRouter();
     this.configureRoutes();
   }
 
@@ -66,6 +72,8 @@ export class RouterManager {
     
     // API routes (with /api prefix) - all API routes get the prefix automatically
     this.mainRouter.use(`${API_PREFIX}${this.itemRouter.getBasePath()}`, this.itemRouter.getRouter());
+    this.mainRouter.use(`${API_PREFIX}${this.verificationRouter.getBasePath()}`, this.verificationRouter.getRouter());
+    this.mainRouter.use(`${API_PREFIX}${this.metricsRouter.getBasePath()}`, this.metricsRouter.getRouter());
   }
 
   /**
@@ -85,6 +93,10 @@ export class RouterManager {
 
   public getHealthRouter(): HealthRouter {
     return this.healthRouter;
+  }
+
+  public getVerificationRouter(): VerificationRouter {
+    return this.verificationRouter;
   }
 
   /**
@@ -135,6 +147,16 @@ export class RouterManager {
     routes.push(...this.itemRouter.getRouteInfo().map(route => ({
       ...route,
       path: `${API_PREFIX}${route.path}` // Add API prefix to item routes
+    })));
+    
+    routes.push(...this.verificationRouter.getRouteInfo().map(route => ({
+      ...route,
+      path: `${API_PREFIX}${route.path}` // Add API prefix to verification routes
+    })));
+    
+    routes.push(...this.metricsRouter.getRouteInfo().map(route => ({
+      ...route,
+      path: `${API_PREFIX}${route.path}` // Add API prefix to metrics routes
     })));
     
     return routes;

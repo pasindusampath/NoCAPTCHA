@@ -1,14 +1,9 @@
 import React from 'react';
+import { IItem } from '@nx-mono-repo-deployment-test/shared/src';
 import styles from '../styles/ItemList.module.css';
 
-interface Item {
-  id: number;
-  name: string;
-  description?: string;
-}
-
 interface ItemListProps {
-  items: Item[];
+  items: IItem[];
 }
 
 export default function ItemList({ items }: ItemListProps) {
@@ -18,8 +13,8 @@ export default function ItemList({ items }: ItemListProps) {
 
   return (
     <ul className={styles.list}>
-      {items.map((item) => (
-        <li key={item.id} className={styles.item}>
+      {items.map((item, index) => (
+        <li key={item.id ?? index} className={styles.item}>
           <h4>{item.name}</h4>
           {item.description && <p>{item.description}</p>}
         </li>

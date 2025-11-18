@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@nx-mono-repo-deployment-test/shared": ["libs/shared/src"]
+    }
+  },
+  "files": [],
+  "include": [],
+  "references": [
+    { "path": "./apps/api" },
+    { "path": "./apps/web" },
+    { "path": "./libs/shared" }
+  ]
+}
+

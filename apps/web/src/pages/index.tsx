@@ -2,33 +2,20 @@ import { useState, useEffect } from 'react';
 import Head from 'next/head';
 import ItemList from '../components/ItemList';
 import AddItemForm from '../components/AddItemForm';
+import { fetchItems, createItem } from '../services/itemService';
+import { IItem } from '@nx-mono-repo-deployment-test/shared/src';
 import styles from '../styles/Home.module.css';
 
-interface Item {
-  id: number;
-  name: string;
-  description: string;
-}
-
-interface ApiResponse {
-  success: boolean;
-  data: Item[];
-  count: number;
-}
-
 export default function Home() {
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<IItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
-
-  const fetchItems = async (): Promise<void> => {
+  const loadItems = async (): Promise<void> => {
     try {
       setLoading(true);
-      const response = await fetch(`${apiUrl}/api/items`);
-      const data: ApiResponse = await response.json();
-      setItems(data.data || []);
+      const data = await fetchItems();
+      setItems(data);
       setError(null);
     } catch (err) {
       setError('Failed to fetch items');
@@ -39,24 +26,18 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchItems();
+    loadItems();
   }, []);
 
   const handleAddItem = async (name: string, description: string): Promise<void> => {
     try {
-      const response = await fetch(`${apiUrl}/api/items`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name, description }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        await fetchItems();
+      const response = await createItem(name, description);
+      if (response.success) {
+        await loadItems();
       }
     } catch (err) {
       console.error('Failed to add item:', err);
+      setError('Failed to add item');
     }
   };
 

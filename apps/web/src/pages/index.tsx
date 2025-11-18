@@ -54,6 +54,17 @@ export default function Home() {
               </li>
             </ul>
           </div>
+
+          <div className={styles.card}>
+            <h2>Admin Dashboard</h2>
+            <p style={{ marginBottom: '1.5rem', color: '#666' }}>
+              Manage verification cache, monitor IP activity, and control blocking mechanisms.
+              View statistics, manage blocked IPs, and perform administrative actions.
+            </p>
+            <Link href="/admin" className={styles.ctaButton}>
+              Go to Admin Dashboard →
+            </Link>
+          </div>
         </div>
 
         <div className={styles.features}>

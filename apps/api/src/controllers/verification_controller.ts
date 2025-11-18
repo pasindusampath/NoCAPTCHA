@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { VerificationService } from '../services';
-import { VerifyRequestDto, VerifyResponseDto } from '@nx-mono-repo-deployment-test/shared/src/dtos';
+import { VerifyRequestDto} from '@nx-mono-repo-deployment-test/shared/src/dtos';
 
 /**
  * Controller for Verification endpoints

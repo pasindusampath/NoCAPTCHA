@@ -1,5 +1,9 @@
 version: '3.8'
 
+# Turnstile Project - Development Configuration
+# Frontend: turnstile.pasindusampath.com
+# Backend API: turnstile-api.pasindusampath.com
+
 services:
   api-dev:
     build:
@@ -25,7 +29,8 @@ services:
       context: .
       dockerfile: apps/web/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: https://dev-api.pasindusampath.com
+        # API URL - points to turnstile-api subdomain
+        NEXT_PUBLIC_API_URL: https://turnstile-api.pasindusampath.com
     container_name: nx-web-dev
     expose:
       - "3020"

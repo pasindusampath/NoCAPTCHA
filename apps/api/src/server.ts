@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import express, { Application, Request, Response } from 'express';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { Server as HttpServer } from 'http';
@@ -41,16 +41,39 @@ class Server {
     this.app.use(helmet());
     
     // CORS configuration - allow frontend domains
-    const allowedOrigins = process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',') 
-      : ['*'];
+    const corsOrigin = process.env.CORS_ORIGIN;
+    let corsOptions: CorsOptions;
     
-    this.app.use(cors({
-      origin: allowedOrigins,
-      credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
-    }));
+    if (corsOrigin) {
+      // If CORS_ORIGIN is set, use it (comma-separated list)
+      const allowedOrigins = corsOrigin.split(',').map(origin => origin.trim());
+      corsOptions = {
+        origin: allowedOrigins,
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization']
+      };
+    } else {
+      // Default: allow all origins in development, or specific origins in production
+      if (isDevelopment()) {
+        corsOptions = {
+          origin: true, // Allow all origins in development
+          credentials: true,
+          methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+          allowedHeaders: ['Content-Type', 'Authorization']
+        };
+      } else {
+        // In production, default to common frontend origins
+        corsOptions = {
+          origin: ['http://localhost:3001', 'http://localhost:3000'],
+          credentials: true,
+          methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+          allowedHeaders: ['Content-Type', 'Authorization']
+        };
+      }
+    }
+    
+    this.app.use(cors(corsOptions));
     
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));

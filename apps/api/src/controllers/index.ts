@@ -4,6 +4,7 @@
 export { default as ItemController } from './item_controller';
 export { default as HealthController } from './health_controller';
 export { default as VerificationController } from './verification_controller';
+export { default as AdminController } from './admin_controller';
 
 // Add more controllers as you create them
 // export { default as UserController } from './UserController';

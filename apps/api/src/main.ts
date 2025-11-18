@@ -1,9 +1,29 @@
 import 'reflect-metadata'; // Required for decorators - MUST BE FIRST!
 import dotenv from 'dotenv';
+import path from 'path';
 import Server from './server';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables early
+// Try multiple paths to find .env file
+const possibleEnvPaths = [
+  path.resolve(process.cwd(), 'apps/api', '.env'),
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(__dirname, '../.env'),
+];
+
+let envLoaded = false;
+for (const envPath of possibleEnvPaths) {
+  const result = dotenv.config({ path: envPath });
+  if (!result.error) {
+    envLoaded = true;
+    break;
+  }
+}
+
+// Fallback to default dotenv behavior
+if (!envLoaded) {
+  dotenv.config();
+}
 
 // Get port from environment or use default
 const port = parseInt(process.env.PORT || '3000', 10);

@@ -19,30 +19,66 @@ const ENV_FILE_MAP: Record<Environment, string> = {
  * Priority: .env.[environment] > .env
  * 
  * Examples:
- * - Environment.DEVELOPMENT → loads .env.dev
+ * - Environment.DEVELOPMENT → loads .env.dev or .env
  * - Environment.QA → loads .env.qa
  * - Environment.STAGING → loads .env.staging
  * - Environment.PRODUCTION → loads .env.prod
  */
 const currentEnv = getCurrentEnvironment();
 const envFile = ENV_FILE_MAP[currentEnv];
-const envPath = path.resolve(process.cwd(), 'apps/api', envFile);
+
+// Try multiple possible paths for the .env file
+// 1. From monorepo root: apps/api/.env.dev or apps/api/.env
+// 2. From apps/api directory: .env.dev or .env
+const possiblePaths = [
+  path.resolve(process.cwd(), 'apps/api', envFile), // Monorepo root
+  path.resolve(process.cwd(), 'apps/api', '.env'),  // Monorepo root, fallback
+  path.resolve(__dirname, '../../', envFile),        // From compiled dist
+  path.resolve(__dirname, '../../', '.env'),         // From compiled dist, fallback
+  path.resolve(process.cwd(), envFile),              // Current directory
+  path.resolve(process.cwd(), '.env'),               // Current directory, fallback
+];
+
+let loaded = false;
+let loadedPath = '';
 
 // Try to load environment-specific file first
-const result = dotenv.config({ path: envPath });
+for (const envPath of possiblePaths) {
+  const result = dotenv.config({ path: envPath });
+  if (!result.error) {
+    loaded = true;
+    loadedPath = envPath;
+    console.log(`✓ Loaded environment config from: ${path.basename(envPath)}`);
+    break;
+  }
+}
 
-// Fallback to default .env if environment-specific file doesn't exist locally
-if (result.error && currentEnv !== Environment.DEVELOPMENT) {
-  console.log(`⚠️  ${envFile} not found, falling back to .env`);
-  dotenv.config();
-} else if (!result.error) {
-  console.log(`✓ Loaded environment config from: ${envFile}`);
+// If no file was loaded, try default .env in apps/api directory
+if (!loaded) {
+  const defaultEnvPath = path.resolve(process.cwd(), 'apps/api', '.env');
+  const result = dotenv.config({ path: defaultEnvPath });
+  if (!result.error) {
+    loaded = true;
+    loadedPath = defaultEnvPath;
+    console.log(`✓ Loaded environment config from: .env`);
+  }
+}
+
+// Final fallback: try loading from current working directory
+if (!loaded) {
+  const result = dotenv.config();
+  if (!result.error) {
+    loaded = true;
+    loadedPath = '.env (current directory)';
+    console.log(`✓ Loaded environment config from: .env (current directory)`);
+  }
 }
 
 // In production/VPS, environment variables may be set directly by docker-compose
 // which overrides file-based .env, so this is fine
-if (result.error && !process.env.DB_NAME) {
+if (!loaded && !process.env.DB_NAME) {
   console.warn(`⚠️  No .env file found and no DB_NAME environment variable set`);
+  console.warn(`   Tried paths: ${possiblePaths.map(p => path.basename(p)).join(', ')}`);
 }
 
 /**

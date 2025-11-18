@@ -1,5 +1,5 @@
 import { BaseRouter } from '../common/base_router';
-import { Request, Response, NextFunction } from 'express';
+import { AdminController } from '../../controllers';
 import { VerificationCacheService } from '../../services/verification_cache_service';
 
 // Route path constants
@@ -17,34 +17,46 @@ const ADMIN_BASE_PATH = '/admin'; // Full path: /api/admin (api prefix added by 
  * - DELETE /api/admin/cache/ip/:ip     - Clear record for IP
  */
 export class AdminRouter extends BaseRouter {
-  private cacheService: VerificationCacheService;
+  private adminController!: AdminController;
 
   constructor() {
     super();
-    this.cacheService = VerificationCacheService.getInstance();
+  }
+
+  /**
+   * Get or create the admin controller instance (lazy initialization)
+   */
+  private getAdminController(): AdminController {
+    if (!this.adminController) {
+      const cacheService = VerificationCacheService.getInstance();
+      this.adminController = new AdminController(cacheService);
+    }
+    return this.adminController;
   }
 
   /**
    * Initialize all admin routes
    */
   protected initializeRoutes(): void {
+    const controller = this.getAdminController();
+
     // GET /api/admin/cache/stats - Get cache statistics
-    this.router.get('/cache/stats', this.getCacheStats);
+    this.router.get('/cache/stats', controller.getCacheStats);
 
     // GET /api/admin/cache/blocked - Get blocked IPs
-    this.router.get('/cache/blocked', this.getBlockedIps);
+    this.router.get('/cache/blocked', controller.getBlockedIps);
 
     // GET /api/admin/cache/ip/:ip - Get stats for specific IP
-    this.router.get('/cache/ip/:ip', this.getIpStats);
+    this.router.get('/cache/ip/:ip', controller.getIpStats);
 
     // POST /api/admin/cache/block/:ip - Block an IP
-    this.router.post('/cache/block/:ip', this.blockIp);
+    this.router.post('/cache/block/:ip', controller.blockIp);
 
     // POST /api/admin/cache/unblock/:ip - Unblock an IP
-    this.router.post('/cache/unblock/:ip', this.unblockIp);
+    this.router.post('/cache/unblock/:ip', controller.unblockIp);
 
     // DELETE /api/admin/cache/ip/:ip - Clear record for IP
-    this.router.delete('/cache/ip/:ip', this.clearIp);
+    this.router.delete('/cache/ip/:ip', controller.clearIp);
   }
 
   /**
@@ -68,80 +80,11 @@ export class AdminRouter extends BaseRouter {
   }
 
   /**
-   * Route handlers
+   * Get the admin controller instance
+   * Useful for testing or accessing controller methods directly
    */
-  private getCacheStats = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const stats = this.cacheService.getCacheStats();
-      res.sendSuccess(stats, 'Cache statistics retrieved', 200);
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  private getBlockedIps = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const blocked = this.cacheService.getBlockedIps();
-      res.sendSuccess({ blocked, count: blocked.length }, 'Blocked IPs retrieved', 200);
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  private getIpStats = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const { ip } = req.params;
-      const stats = this.cacheService.getRecordStats(ip);
-      res.sendSuccess(stats, 'IP statistics retrieved', 200);
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  private blockIp = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const { ip } = req.params;
-      const durationMinutes = req.body?.durationMinutes 
-        ? parseInt(req.body.durationMinutes, 10) 
-        : undefined;
-      
-      this.cacheService.blockIp(ip, durationMinutes);
-      res.sendSuccess(
-        { ip, blocked: true, message: `IP ${ip} has been blocked` },
-        'IP blocked successfully',
-        200
-      );
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  private unblockIp = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const { ip } = req.params;
-      this.cacheService.unblockIp(ip);
-      res.sendSuccess(
-        { ip, blocked: false, message: `IP ${ip} has been unblocked` },
-        'IP unblocked successfully',
-        200
-      );
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  private clearIp = (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      const { ip } = req.params;
-      this.cacheService.clearRecord(ip);
-      res.sendSuccess(
-        { ip, message: `Record for IP ${ip} has been cleared` },
-        'IP record cleared successfully',
-        200
-      );
-    } catch (error) {
-      next(error);
-    }
-  };
+  public getController(): AdminController {
+    return this.getAdminController();
+  }
 }
 
